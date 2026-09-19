@@ -47,7 +47,8 @@ never be shared or committed.
 2. **Register** with an email address and confirm it. The confirmation link
    activates the account; the key will not authenticate until you do this.
 3. Sign in to the dashboard and **generate / copy your API key**. It looks like
-   a UUID (36 characters, e.g. `b724xxxx-xxxx-xxxx-xxxx-xxxxxxxx2bf7`).
+   a UUID (36 characters, in the form
+   `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`).
 4. Paste it into `.env` — see [step 3](#3-add-your-api-key) below.
 5. **Verify it is enabled** before wiring it into a client:
 
