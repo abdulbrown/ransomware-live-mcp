@@ -6,12 +6,15 @@ https://api-pro.ransomware.live (OpenAPI: /swagger.json).
 
 from __future__ import annotations
 
+import functools
+import inspect
 import os
 from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import __version__
@@ -57,8 +60,37 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorld
 
 
 def readonly_tool(**kwargs: Any):
-    """Register a tool, tagging it read-only so clients can auto-approve it."""
-    return mcp.tool(annotations=_READ_ONLY, **kwargs)
+    """Register a tool, tagging it read-only so clients can auto-approve it.
+
+    Also converts our own ApiError into the SDK's ToolError. An exception the
+    SDK does not recognise is wrapped as UnexpectedToolError, which tears down
+    the stdio session -- so a missing API key or a 404 would cost the client
+    all 25 tools instead of returning one actionable message. ToolError is
+    reported to the caller and leaves the session running.
+    """
+
+    def decorator(fn):
+        if inspect.iscoroutinefunction(fn):
+
+            @functools.wraps(fn)
+            async def wrapper(*args: Any, **kw: Any):
+                try:
+                    return await fn(*args, **kw)
+                except ApiError as exc:
+                    raise ToolError(str(exc)) from exc
+
+        else:
+
+            @functools.wraps(fn)
+            def wrapper(*args: Any, **kw: Any):
+                try:
+                    return fn(*args, **kw)
+                except ApiError as exc:
+                    raise ToolError(str(exc)) from exc
+
+        return mcp.tool(annotations=_READ_ONLY, **kwargs)(wrapper)
+
+    return decorator
 
 
 def _order(order: str | None) -> str | None:

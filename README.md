@@ -241,6 +241,12 @@ Only `pytest` runs without an API key; the other three make live calls.
 - The server exits on stdin EOF, which is correct MCP behaviour. Test harnesses
   using `subprocess.communicate()` will close stdin and abort any in-flight tool
   call; hold stdin open instead.
+- **Raise `ToolError`, never a bare exception.** The SDK wraps an unrecognised
+  exception as `UnexpectedToolError`, which tears down the stdio session — one
+  failing call costs the client all 25 tools. The `readonly_tool` decorator
+  converts `ApiError` to `ToolError` centrally, so a missing key or a 404
+  returns one actionable message and the session stays up. Any new failure mode
+  should go through `ApiError`.
 - This targets **MCP SDK 2.x**, where `FastMCP` was renamed `MCPServer`. Most
   tutorials still show the 1.x import.
 

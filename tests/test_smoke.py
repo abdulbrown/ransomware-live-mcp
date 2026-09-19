@@ -16,7 +16,7 @@ from ransomware_live_mcp.formatting import (
     slim_victims,
     strip_envelope,
 )
-from ransomware_live_mcp.server import mcp
+from ransomware_live_mcp.server import _client, mcp
 
 
 async def test_all_tools_register():
@@ -55,6 +55,47 @@ async def test_all_tools_register():
 async def test_every_tool_has_a_description():
     for tool in await mcp.list_tools():
         assert tool.description, f"{tool.name} has no description"
+
+
+# --- error handling --------------------------------------------------------
+# An exception the SDK does not recognise becomes UnexpectedToolError, which
+# tears down the whole stdio session: one bad call would cost the client all
+# 25 tools. Our errors must surface as ToolError instead.
+
+
+async def _call_expecting_failure(name: str, args: dict) -> str:
+    from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+
+    try:
+        result = await mcp.call_tool(name, args)
+    except UnexpectedToolError as exc:  # pragma: no cover - the bug we guard
+        pytest.fail(f"{name} raised UnexpectedToolError, which kills the session: {exc}")
+    except ToolError as exc:
+        return str(exc)
+
+    assert getattr(result, "is_error", False), f"{name} should have reported an error"
+    return "".join(getattr(c, "text", "") for c in (getattr(result, "content", None) or []))
+
+
+async def test_missing_api_key_does_not_kill_the_session(monkeypatch):
+    monkeypatch.setattr(_client, "_api_key", "")
+    await _call_expecting_failure("validate_api_key", {})
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("filter_victims", {}),
+        ("filter_victims", {"year": "2024"}),
+        ("filter_victims", {"month": "06"}),
+        ("search_victims", {}),
+        ("search_press", {"month": "03"}),
+        ("get_sec_8k_filings", {"include_item_105": False, "include_item_801": False}),
+    ],
+)
+async def test_invalid_arguments_are_rejected_without_killing_the_session(name, args):
+    # These are caught before any HTTP call, so they need no key and no network.
+    await _call_expecting_failure(name, args)
 
 
 def test_victim_id_roundtrip():
