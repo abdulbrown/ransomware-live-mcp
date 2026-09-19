@@ -12,111 +12,259 @@ disclosures, and national CSIRT contacts.
 Built for defensive use: threat hunting, detection engineering, incident
 response, third-party risk and tabletop exercises.
 
+Works on **macOS, Linux and Windows**.
+
 ---
 
-## Requirements
-
-- Python 3.10+
-- An MCP client (Claude Code, Claude Desktop, or any other)
-- A free ransomware.live PRO API key — register at
-  [my.ransomware.live](https://my.ransomware.live). The free PRO tier allows
-  500,000 calls/month.
-
-## Install
-
-Clone, then create an isolated environment. Using [uv](https://docs.astral.sh/uv/):
+## Quick start
 
 ```bash
-git clone https://github.com/<your-username>/ransomware-live-mcp.git
+git clone https://github.com/abdulbrown/ransomware-live-mcp.git
 cd ransomware-live-mcp
 uv venv
 uv pip install -e ".[dev]"
+cp .env.example .env          # then paste your key into .env
 ```
 
-<details>
-<summary>Using plain <code>venv</code> + <code>pip</code> instead</summary>
+Then [register it with your MCP client](#register-with-your-mcp-client).
+
+Full detail below.
+
+---
+
+## 1. Requirements
+
+- **Python 3.10+**
+- An **MCP client** — Claude Code, Claude Desktop, or any other
+- A **free ransomware.live PRO API key**
+
+### Get your API key
+
+Register at **[my.ransomware.live](https://my.ransomware.live)**. The free PRO
+tier allows 500,000 calls/month. Every user needs their own key; keys are
+personal and should never be shared or committed.
+
+## 2. Install
+
+<details open>
+<summary><b>macOS / Linux</b></summary>
 
 ```bash
-python -m venv .venv
-# Linux/macOS:
-source .venv/bin/activate
-# Windows PowerShell:
-.\.venv\Scripts\Activate.ps1
+git clone https://github.com/abdulbrown/ransomware-live-mcp.git
+cd ransomware-live-mcp
 
+# with uv (recommended):
+uv venv
+uv pip install -e ".[dev]"
+
+# or with plain venv + pip:
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+Your Python interpreter is at `.venv/bin/python`.
+
 </details>
 
-## Configure
+<details open>
+<summary><b>Windows (PowerShell)</b></summary>
 
-Copy the example file and add your key:
+```powershell
+git clone https://github.com/abdulbrown/ransomware-live-mcp.git
+cd ransomware-live-mcp
+
+# with uv (recommended):
+uv venv
+uv pip install -e ".[dev]"
+
+# or with plain venv + pip:
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+```
+
+Your Python interpreter is at `.venv\Scripts\python.exe`.
+
+</details>
+
+> Throughout this README, `<PYTHON>` means the interpreter path for your
+> platform: `.venv/bin/python` on macOS/Linux, `.venv\Scripts\python.exe` on
+> Windows.
+
+Verify the install before going further — this works **without** an API key:
 
 ```bash
+<PYTHON> -m pytest -q
+```
+
+Expect `32 passed`.
+
+## 3. Add your API key
+
+Copy the example file and paste your key into it:
+
+```bash
+# macOS / Linux
 cp .env.example .env
 ```
+```powershell
+# Windows
+Copy-Item .env.example .env
+```
+
+Edit `.env`:
 
 ```ini
 RANSOMWARE_LIVE_API_KEY=your-key-here
 ```
 
-`.env` is gitignored. The server resolves it relative to its own install
-location, not the working directory, so it works no matter where your MCP
-client launches it from.
+`.env` is gitignored and will never be committed. The server resolves it
+relative to its own install location, not the working directory, so it works no
+matter where your MCP client launches it from.
 
-Verify the key and connectivity:
+Confirm the key works:
 
 ```bash
-.venv/bin/python scripts/selftest.py          # Windows: .\.venv\Scripts\python.exe
+<PYTHON> scripts/selftest.py
 ```
 
-Expected output ends with `[ok] full self-test passed`.
+Expected output ends with `[ok] full self-test passed`. If you have not added a
+key yet it exits cleanly and tells you so, rather than failing cryptically.
 
-## Register with an MCP client
+## 4. Register with your MCP client
+
+Every MCP client spawns the interpreter directly, so **you must use an absolute
+path** to the venv Python. Get it with:
+
+```bash
+# macOS / Linux
+echo "$(pwd)/.venv/bin/python"
+```
+```powershell
+# Windows
+(Resolve-Path .\.venv\Scripts\python.exe).Path
+```
 
 ### Claude Code
 
 ```bash
-claude mcp add ransomware-live --scope user -- /absolute/path/to/.venv/bin/python -m ransomware_live_mcp.server
+# macOS / Linux
+claude mcp add ransomware-live --scope user -- /ABSOLUTE/PATH/TO/ransomware-live-mcp/.venv/bin/python -m ransomware_live_mcp.server
+```
+```powershell
+# Windows
+claude mcp add ransomware-live --scope user -- C:\ABSOLUTE\PATH\TO\ransomware-live-mcp\.venv\Scripts\python.exe -m ransomware_live_mcp.server
 ```
 
-Use `--scope user` to make it available in every project, or drop the flag to
-scope it to the current one. Confirm with `claude mcp list` — it should report
-`✓ Connected`.
+`--scope user` makes it available in every project; drop the flag to scope it to
+the current project only.
 
-### Claude Desktop / any other MCP client
+Confirm it connected:
+
+```bash
+claude mcp list
+```
+
+You should see `ransomware-live: ... - ✓ Connected`. The tools become available
+in **new** sessions, so restart any session you already have open.
+
+To remove it later: `claude mcp remove ransomware-live --scope user`
+
+### Claude Desktop
+
+Edit your `claude_desktop_config.json`:
+
+| Platform | Location |
+| --- | --- |
+| **macOS** | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Windows** | `%APPDATA%\Claude\claude_desktop_config.json` |
+
+You can also reach it from the app: **Settings → Developer → Edit Config**.
+
+<details open>
+<summary><b>macOS config</b></summary>
 
 ```json
 {
   "mcpServers": {
     "ransomware-live": {
-      "command": "/absolute/path/to/.venv/bin/python",
+      "command": "/Users/you/code/ransomware-live-mcp/.venv/bin/python",
       "args": ["-m", "ransomware_live_mcp.server"]
     }
   }
 }
 ```
 
-On Windows, use the full path to `.venv\Scripts\python.exe` with escaped
-backslashes.
+</details>
 
-You can pass the key inline instead of using `.env`:
+<details open>
+<summary><b>Windows config</b></summary>
+
+Backslashes must be escaped in JSON:
 
 ```json
-"env": { "RANSOMWARE_LIVE_API_KEY": "your-key-here" }
+{
+  "mcpServers": {
+    "ransomware-live": {
+      "command": "C:\\Users\\you\\code\\ransomware-live-mcp\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "ransomware_live_mcp.server"]
+    }
+  }
+}
 ```
 
-`.env` is usually preferable — it keeps the key out of client config files that
-are easy to sync or share by accident.
+</details>
+
+**Restart Claude Desktop completely** after editing — quit the app, don't just
+close the window. The tools appear under the tools icon in the chat input.
+
+### Any other MCP client
+
+The server speaks MCP over **stdio**. Point your client at:
+
+- **command:** the absolute path to `<PYTHON>`
+- **args:** `["-m", "ransomware_live_mcp.server"]`
+
+### Passing the key inline instead of using `.env`
+
+Any client that supports an `env` block can supply the key directly:
+
+```json
+{
+  "mcpServers": {
+    "ransomware-live": {
+      "command": "/absolute/path/to/.venv/bin/python",
+      "args": ["-m", "ransomware_live_mcp.server"],
+      "env": { "RANSOMWARE_LIVE_API_KEY": "your-key-here" }
+    }
+  }
+}
+```
+
+`.env` is usually preferable — it keeps your key out of client config files,
+which are easy to sync, screenshot or share by accident.
 
 ### Running it directly
 
 ```bash
-.venv/bin/python -m ransomware_live_mcp.server
+<PYTHON> -m ransomware_live_mcp.server
 ```
 
-It speaks MCP over stdio, so launched on its own it will simply wait for a
-client. That is expected, not a hang.
+It will sit and wait for a client on stdin. That is correct behaviour, not a
+hang.
+
+## 5. Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `✗ Failed to connect` in `claude mcp list` | Wrong interpreter path. It must be the absolute path to the venv Python, not `python` or a system install. |
+| Every tool returns "No API key configured" | `.env` missing or key not filled in. Run `<PYTHON> scripts/selftest.py` to confirm. |
+| `API key rejected (403)` | Key is wrong or inactive. Verify at [my.ransomware.live](https://my.ransomware.live). |
+| `ModuleNotFoundError: ransomware_live_mcp` | The client is using a different interpreter than the one you installed into. Re-check the absolute path. |
+| Tools don't appear in Claude Code | They only load in **new** sessions. Restart the session. |
+| Tools don't appear in Claude Desktop | Quit and relaunch the app entirely; closing the window is not enough. |
+| Windows: `running scripts is disabled` | PowerShell execution policy. Use `.\.venv\Scripts\python.exe` directly instead of activating. |
 
 ---
 
@@ -219,10 +367,10 @@ Precedence: real environment variables > `.env` in the working directory >
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q             # 25 offline tests, no key needed
-.venv/bin/python scripts/launch_check.py  # stdio JSON-RPC handshake
-.venv/bin/python scripts/selftest.py      # key validation + a few live calls
-.venv/bin/python scripts/live_check.py    # all 25 tools against the live API
+<PYTHON> -m pytest -q             # 32 offline tests, no key needed
+<PYTHON> scripts/launch_check.py  # stdio JSON-RPC handshake
+<PYTHON> scripts/selftest.py      # key validation + a few live calls
+<PYTHON> scripts/live_check.py    # all 25 tools against the live API
 ```
 
 `launch_check.py` spawns the server as a real subprocess from an unrelated
