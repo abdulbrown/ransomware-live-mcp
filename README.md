@@ -26,7 +26,7 @@ uv pip install -e ".[dev]"
 cp .env.example .env          # then paste your key into .env
 ```
 
-Then [register it with your MCP client](#register-with-your-mcp-client).
+Then [register it with your MCP client](#4-register-with-your-mcp-client).
 
 Full detail below.
 
@@ -38,11 +38,56 @@ Full detail below.
 - An **MCP client** — Claude Code, Claude Desktop, or any other
 - A **free ransomware.live PRO API key**
 
-### Get your API key
+### Get and enable your API key
 
-Register at **[my.ransomware.live](https://my.ransomware.live)**. The free PRO
-tier allows 500,000 calls/month. Every user needs their own key; keys are
-personal and should never be shared or committed.
+The key is **free**. Every user needs their own — keys are personal and should
+never be shared or committed.
+
+1. Go to **[my.ransomware.live](https://my.ransomware.live)**.
+2. **Register** with an email address and confirm it. The confirmation link
+   activates the account; the key will not authenticate until you do this.
+3. Sign in to the dashboard and **generate / copy your API key**. It looks like
+   a UUID (36 characters, e.g. `b724xxxx-xxxx-xxxx-xxxx-xxxxxxxx2bf7`).
+4. Paste it into `.env` — see [step 3](#3-add-your-api-key) below.
+5. **Verify it is enabled** before wiring it into a client:
+
+   ```bash
+   <PYTHON> scripts/selftest.py
+   ```
+
+   A working key prints `[ok] API key valid:` followed by the account
+   identifier tied to it. You can also check it directly:
+
+   ```bash
+   curl https://api-pro.ransomware.live/validate -H "X-API-KEY: your-key-here"
+   # {"status": "valid", "client": "you@example.com"}
+   ```
+
+Once registered, the key is authenticated by sending it as an `X-API-KEY`
+header on every request — this server handles that for you.
+
+#### Which API tier this uses
+
+ransomware.live offers several tiers. This server targets **API PRO**:
+
+| Tier | Auth | Limit | Used here |
+| --- | --- | --- | --- |
+| API v1 | none | deprecated | no |
+| API v2 | none | 1 req/min per endpoint | no |
+| **API PRO** | **`X-API-KEY`** | **500,000 calls/month** | **yes** |
+| API PRO+ | key | in development | no |
+
+PRO is free but key-gated, and is the only tier exposing group intelligence
+(TTPs, CVEs), negotiations, YARA rules and ransom notes. A fair use policy
+applies; exceeding the quota returns HTTP 429, which this server retries with
+backoff.
+
+#### What the key unlocks
+
+23 of the 25 tools call the API and require the key. Only `build_victim_id` and
+`decode_victim_identifier` work offline. If the key is missing or invalid,
+every API tool returns one clear error message and the server stays running —
+it does not crash the session.
 
 ## 2. Install
 
@@ -301,17 +346,131 @@ hang.
 All 25 are annotated `readOnlyHint`, so clients can auto-approve them without
 prompting on every call.
 
-## Example prompts
+## Use cases
 
-Once registered, ask your client naturally:
+Once registered, ask your client in plain language. The examples below are
+grouped by what the API key actually unlocks, with real figures observed
+against the live API.
 
-- *"Profile the Akira ransomware group — TTPs, exploited CVEs, and tooling."*
-- *"Show UK healthcare ransomware victims from the last year."*
-- *"Analyze Akira's negotiation history — what do victims actually pay?"*
-- *"Pull YARA rules and hash IOCs for Qilin and write them to ./rules/."*
-- *"Which public companies filed SEC 8-K Item 1.05 cyber disclosures in 2025?"*
-- *"Has any of these vendors appeared on a leak site? [domain list]"*
-- *"Who do I notify for a ransomware incident in Germany?"*
+### 1. Threat landscape monitoring
+
+> *"What's the current ransomware landscape summary?"*
+> *"Which groups have been most active this month?"*
+
+**Tools:** `get_stats`, `list_groups`, `get_recent_victims`
+
+A single `get_stats` call is the cheapest freshness check — it returns total
+victims, tracked groups, press entries and the timestamp of the most recent
+leak-site listing. `list_groups` returns every tracked group with a victim
+count, which is also how you resolve the exact group name other tools expect.
+
+### 2. Adversary profiling and vulnerability prioritisation
+
+> *"Profile the Akira ransomware group — TTPs, exploited CVEs, and tooling."*
+> *"Which ransomware groups exploit vulnerabilities in my edge devices?"*
+
+**Tools:** `get_group`
+
+The richest endpoint. For one group you get a full MITRE ATT&CK mapping
+(Initial Access → Impact), the **CVEs that group is known to exploit with CVSS
+scores**, categorised tooling (RMM abuse, exfiltration, credential theft),
+and known leak-site URLs.
+
+This turns a patch backlog into a threat-informed queue: Akira's list includes
+SonicWall `CVE-2024-40766`, Veeam `CVE-2024-40711` and Fortinet
+`CVE-2022-40684` — all CVSS 9.8, all internet-facing. Cross-reference against
+your own edge inventory and the patch order writes itself.
+
+### 3. Detection engineering
+
+> *"Pull YARA rules and hash IOCs for Qilin and write them to ./rules/."*
+> *"Get Akira's IP indicators for my blocklist."*
+
+**Tools:** `list_yara_groups`, `get_yara_rules`, `list_ioc_groups`,
+`get_group_iocs`
+
+`get_yara_rules` returns complete `.yar` rule text ready for a scanner.
+`get_group_iocs` returns indicators grouped by type — use the `ioc_type`
+filter (`md5`, `sha256`, `ip`, `domain`, `email`, `btc`, `tox`, `session`) to
+keep responses small, since some groups hold hundreds of hashes.
+
+Check coverage before you pull: `list_ioc_groups` shows the per-type breakdown,
+so you can see that a group is hash-heavy and network-light before assuming an
+IP blocklist gives you meaningful coverage.
+
+### 4. Third-party and supply chain risk
+
+> *"Have any of these vendors appeared on a leak site? [domain list]"*
+> *"Show UK healthcare ransomware victims from the last year."*
+
+**Tools:** `search_victims`, `filter_victims`, `list_sectors`, `get_victim`
+
+`search_victims` substring-matches both the organisation name **and** the
+website domain, so you can paste a vendor domain list straight in.
+`filter_victims` does exact-match slicing by group, sector, country and date —
+filtering to UK healthcare returns 65 victims, paginated.
+
+Use `list_sectors` first to get valid sector values; it also returns victim
+counts per sector, which is a quick relative-risk picture on its own.
+
+### 5. Incident response
+
+> *"I found a ransom note called README0apt on a host — which group is this?"*
+> *"Who do I notify for a ransomware incident in Germany?"*
+
+**Tools:** `list_ransomnote_groups`, `list_group_ransomnotes`,
+`get_ransomnote`, `get_csirt_contacts`, `get_group`
+
+Ransom notes give you attribution from an artefact you'd actually recover from
+a compromised machine. Once attributed, `get_group` tells you that actor's
+typical initial access and exfiltration tooling — i.e. where else to look.
+
+`get_csirt_contacts` returns national CERT/CSIRT contacts from ENISA and FIRST.
+Worth resolving *before* you need it, not during an incident.
+
+### 6. Ransom negotiation preparation and tabletop exercises
+
+> *"Analyze Akira's negotiation history — what do victims actually pay?"*
+
+**Tools:** `list_negotiation_groups`, `list_group_negotiations`,
+`get_negotiation`
+
+The most unusual dataset here: leaked negotiation transcripts with ransom
+amounts and outcomes. Aggregating Akira's 76 chats:
+
+| Metric | Value |
+| --- | --- |
+| Confirmed paid | 27 / 76 (36%) |
+| Median discount off initial demand | 57% |
+| Median initial demand | $400,000 |
+| Median settled amount | $140,000 |
+| Largest demand observed | $10,000,000 |
+| Longest negotiation | 170 messages ($1.7M → $225k) |
+
+`list_group_negotiations` gives amounts and outcomes without pulling every
+message, so prefer it for aggregate analysis; use `get_negotiation` when you
+want the actual transcript for a tabletop.
+
+**Interpret with care:** this is only the subset of negotiations that *leaked*,
+which skews toward cases that went badly or public. Treat the payment rate as a
+property of that sample, not a market-wide figure.
+
+### 7. Executive reporting and regulatory tracking
+
+> *"Which public companies filed SEC 8-K Item 1.05 cyber disclosures in 2025?"*
+> *"What ransomware activity hit our sector this quarter?"*
+
+**Tools:** `get_sec_8k_filings`, `get_recent_press`, `search_press`,
+`list_sectors`
+
+`get_sec_8k_filings` covers SEC Form 8-K cyber disclosures — Item 1.05
+(Material Cybersecurity Incidents, mandatory since December 2023) and Item 8.01.
+Set `include_item_801=false` for mandatory material incidents only. Each result
+carries company, ticker, CIK, filing date and a direct EDGAR link.
+
+Press endpoints add journalistic coverage cross-linked to leak-site victims
+where the domain matches, which is useful for the "has this become public yet?"
+question.
 
 ---
 
